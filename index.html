@@ -136,8 +136,8 @@ console.log("JS RUNNING");
           replyText = await res.text();
         }
 
-        // Replace the last bot "…" with the real answer
-        chatEl.lastChild.querySelector(".bubble").textContent = replyText;
+        // Replace the last bot "…" with the real answerconst bubbles = chatEl.querySelectorAll(".msg.bot .bubble");
+bubbles[bubbles.length - 1].textContent = replyText;
 
       } catch (err) {
         chatEl.lastChild.querySelector(".bubble").textContent =
