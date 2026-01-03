@@ -66,99 +66,136 @@
     </div>
   </div>
 
-  <script>
-    // IMPORTANT: Replace with your n8n PRODUCTION webhook URL (no line breaks)
-    const WEBHOOK_URL = "https://gpforward.app.n8n.cloud/webhook/gpr-sales-agent";
+ <script>
+  // IMPORTANT: Replace with your n8n PRODUCTION webhook URL (no line breaks)
+  const WEBHOOK_URL = "https://gpforward.app.n8n.cloud/webhook/gpr-sales-agent";
 
-    // Session id so the agent can keep context across turns
-    const SESSION_KEY = "gpf_session_id";
-    const sessionId = (localStorage.getItem(SESSION_KEY) || crypto.randomUUID());
-    localStorage.setItem(SESSION_KEY, sessionId);
+  // Session id so the agent can keep context across turns
+  const SESSION_KEY = "gpf_session_id";
+  const sessionId = (localStorage.getItem(SESSION_KEY) || crypto.randomUUID());
+  localStorage.setItem(SESSION_KEY, sessionId);
 
-    const chatEl = document.getElementById("chat");
-    const inputEl = document.getElementById("input");
-    const sendBtn = document.getElementById("send");
-    const pillsEl = document.getElementById("pills");
+  const chatEl = document.getElementById("chat");
+  const inputEl = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+  const pillsEl = document.getElementById("pills");
 
-    // Return the created bubble so we can update it later (fixes "bubble is not defined")
-    function addMessage(role, text) {
-      const row = document.createElement("div");
-      row.className = "msg " + (role === "user" ? "user" : "bot");
+  function addMessage(role, text) {
+    const row = document.createElement("div");
+    row.className = "msg " + (role === "user" ? "user" : "bot");
 
-      const bubble = document.createElement("div");
-      bubble.className = "bubble";
-      bubble.textContent = text;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
 
-      row.appendChild(bubble);
-      chatEl.appendChild(row);
-      chatEl.scrollTop = chatEl.scrollHeight;
+    row.appendChild(bubble);
+    chatEl.appendChild(row);
+    chatEl.scrollTop = chatEl.scrollHeight;
 
-      return bubble;
+    return bubble;
+  }
+
+  function extractReplyText(data) {
+    // Try the most likely shapes first
+    const candidate =
+      data?.text ??
+      data?.output ??
+      data?.data?.text ??
+      data?.data?.output ??
+      data?.result?.text ??
+      data?.result ??
+      "";
+
+    // Convert non-strings safely
+    let replyText = (typeof candidate === "string") ? candidate : JSON.stringify(candidate);
+
+    // If n8n expression templates leak through, don’t show them to the user
+    if (/\{\{\s*\$json\./.test(replyText)) {
+      replyText = "Sorry — the chat service is misconfigured right now. Please try again in a moment.";
     }
 
-    async function sendMessage(text) {
-      if (!text.trim()) return;
+    // Empty guard
+    if (!replyText || replyText.trim() === "" || replyText === "{}") {
+      replyText = "Sorry — I didn’t receive a readable reply. Please try again.";
+    }
 
-      addMessage("user", text);
-      inputEl.value = "";
-      inputEl.focus();
+    return replyText;
+  }
 
-      sendBtn.disabled = true;
+  async function sendMessage(text) {
+    if (!text.trim()) return;
 
-      // Keep a reference to the bot bubble we want to replace
-      const botBubble = addMessage("bot", "…");
+    addMessage("user", text);
+    inputEl.value = "";
+    inputEl.focus();
 
-      try {
-        const payload = {
-          action: "sendMessage",
-          chatInput: text,
-          sessionId: sessionId
-        };
+    sendBtn.disabled = true;
 
-        const res = await fetch(WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+    const botBubble = addMessage("bot", "…");
 
-        const contentType = res.headers.get("content-type") || "";
-        let replyText = "";
+    try {
+      const payload = {
+        action: "sendMessage",
+        chatInput: text,
+        sessionId: sessionId
+      };
 
-        if (contentType.includes("application/json")) {
-          const data = await res.json();
-          replyText =
-            data?.text ||
-            data?.output ||
-            data?.data?.text ||
-            data?.data?.output ||
-            JSON.stringify(data);
-        } else {
-          replyText = await res.text();
-        }
+      const res = await fetch(WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
-        botBubble.textContent = replyText;
-
-      } catch (err) {
-        botBubble.textContent =
-          "Sorry — I couldn’t reach the chat service. Please try again in a moment.";
-        console.error(err);
-      } finally {
-        sendBtn.disabled = false;
+      // If webhook returns non-2xx, show a clean error (instead of “couldn’t reach”)
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        botBubble.textContent = `Sorry — the chat service returned an error (${res.status}).`;
+        console.error("Webhook error:", res.status, errText);
+        return;
       }
+
+      const contentType = res.headers.get("content-type") || "";
+      let replyText = "";
+
+      if (contentType.includes("application/json")) {
+        const data = await res.json();
+        replyText = extractReplyText(data);
+        console.log("Webhook JSON:", data);
+      } else {
+        // Some webhook nodes return plain text
+        replyText = await res.text();
+        if (/\{\{\s*\$json\./.test(replyText)) {
+          replyText = "Sorry — the chat service is misconfigured right now. Please try again in a moment.";
+        }
+        console.log("Webhook TEXT:", replyText);
+      }
+
+      botBubble.textContent = replyText;
+
+    } catch (err) {
+      botBubble.textContent =
+        "Sorry — I couldn’t reach the chat service. Please try again in a moment.";
+      console.error(err);
+    } finally {
+      sendBtn.disabled = false;
     }
+  }
 
-    sendBtn.addEventListener("click", () => sendMessage(inputEl.value));
-    inputEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") sendMessage(inputEl.value);
-    });
+  sendBtn.addEventListener("click", () => sendMessage(inputEl.value));
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage(inputEl.value);
+  });
 
-    pillsEl.addEventListener("click", (e) => {
-      const pill = e.target.closest(".pill");
-      if (!pill) return;
-      sendMessage(pill.dataset.text);
-    });
+  pillsEl.addEventListener("click", (e) => {
+    const pill = e.target.closest(".pill");
+    if (!pill) return;
+    sendMessage(pill.dataset.text);
+  });
 
-    console.log("JS RUNNING");
-  </script>
+  console.log("JS RUNNING");
+</script>
+</body>
+</html>
+
 </body>
 </html>
