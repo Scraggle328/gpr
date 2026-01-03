@@ -1,5 +1,3 @@
-alert("SCRIPT LOADED");
-console.log("JS RUNNING");
 <!doctype html>
 <html lang="en">
 <head>
@@ -57,7 +55,7 @@ console.log("JS RUNNING");
       <div class="chat" id="chat"></div>
 
       <div class="hint">
-        Tip: We can help.  Just ask one question at a time to learn more about our program.</b>.
+        Tip: We can help. Just ask one question at a time to learn more about our program.
       </div>
 
       <div class="footer">
@@ -68,10 +66,10 @@ console.log("JS RUNNING");
   </div>
 
   <script>
-    // 1) IMPORTANT: Replace this with your n8n Webhook URL
+    // IMPORTANT: Replace with your n8n PRODUCTION webhook URL (no line breaks)
     const WEBHOOK_URL = "https://gpforward.app.n8n.cloud/webhook/ccbe0640-369d-451b-b8f6-2794bea9f806";
 
-    // 2) Session id so the agent can keep context across turns
+    // Session id so the agent can keep context across turns
     const SESSION_KEY = "gpf_session_id";
     const sessionId = (localStorage.getItem(SESSION_KEY) || crypto.randomUUID());
     localStorage.setItem(SESSION_KEY, sessionId);
@@ -81,6 +79,7 @@ console.log("JS RUNNING");
     const sendBtn = document.getElementById("send");
     const pillsEl = document.getElementById("pills");
 
+    // Return the created bubble so we can update it later (fixes "bubble is not defined")
     function addMessage(role, text) {
       const row = document.createElement("div");
       row.className = "msg " + (role === "user" ? "user" : "bot");
@@ -92,6 +91,8 @@ console.log("JS RUNNING");
       row.appendChild(bubble);
       chatEl.appendChild(row);
       chatEl.scrollTop = chatEl.scrollHeight;
+
+      return bubble;
     }
 
     async function sendMessage(text) {
@@ -102,11 +103,11 @@ console.log("JS RUNNING");
       inputEl.focus();
 
       sendBtn.disabled = true;
-      const thinking = "…";
-      addMessage("bot", thinking);
+
+      // Keep a reference to the bot bubble we want to replace
+      const botBubble = addMessage("bot", "…");
 
       try {
-        // This payload matches the pattern seen in your n8n logs (action + chatInput + sessionId)
         const payload = {
           action: "sendMessage",
           chatInput: text,
@@ -124,23 +125,20 @@ console.log("JS RUNNING");
 
         if (contentType.includes("application/json")) {
           const data = await res.json();
-          // Common n8n patterns:
-          // - { "text": "..." }
-          // - { "output": "..." }
-          // - { "data": { "text": "..." } }
           replyText =
-            (data && (data.text || data.output)) ||
-            (data && data.data && (data.data.text || data.data.output)) ||
+            data?.text ||
+            data?.output ||
+            data?.data?.text ||
+            data?.data?.output ||
             JSON.stringify(data);
         } else {
           replyText = await res.text();
         }
 
-        // Replace the last bot "…" with the real answerconst bubbles = chatEl.querySelectorAll(".msg.bot .bubble");
-bubbles[bubbles.length - 1].textContent = replyText;
+        botBubble.textContent = replyText;
 
       } catch (err) {
-        chatEl.lastChild.querySelector(".bubble").textContent =
+        botBubble.textContent =
           "Sorry — I couldn’t reach the chat service. Please try again in a moment.";
         console.error(err);
       } finally {
@@ -159,7 +157,7 @@ bubbles[bubbles.length - 1].textContent = replyText;
       sendMessage(pill.dataset.text);
     });
 
-  
+    console.log("JS RUNNING");
   </script>
 </body>
 </html>
